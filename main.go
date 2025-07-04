@@ -12,7 +12,7 @@ import (
 	api "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
-type Param struct {
+type SSH struct {
 	PWD      string
 	SSH_MODE bool
 	SSH_HOST string
@@ -20,7 +20,7 @@ type Param struct {
 	SSH_PORT string
 }
 
-func (param *Param) sshParamParse(host string, env *env.Env) (string, string, string) {
+func (ssh *SSH) paramParse(host string, env *env.Env) (string, string, string) {
 	var userName, port string
 	if strings.Contains(host, "@") {
 		hostSplit := strings.Split(host, "@")
@@ -39,7 +39,19 @@ func (param *Param) sshParamParse(host string, env *env.Env) (string, string, st
 	return host, userName, port
 }
 
-func (param *Param) changeDir(bot *api.BotAPI, chatID int64, message string) {
+func (ssh *SSH) runCommand(command string, env *env.Env) ([]byte, error) {
+	output, err := exec.Command(
+		"ssh",
+		"-o", "ConnectTimeout="+env.SSH_CONNECT_TIMEOUT,
+		ssh.SSH_USER+"@"+ssh.SSH_HOST,
+		"-p", ssh.SSH_PORT,
+		env.LINUX_SHELL, "-c",
+		"'"+command+"'",
+	).CombinedOutput()
+	return output, err
+}
+
+func (ssh *SSH) changeDir(bot *api.BotAPI, chatID int64, message string) {
 	newPath := strings.TrimSpace(message[3:])
 	err := os.Chdir(newPath)
 	if err != nil {
@@ -48,7 +60,7 @@ func (param *Param) changeDir(bot *api.BotAPI, chatID int64, message string) {
 		return
 	}
 	pwd, _ := os.Getwd()
-	param.PWD = pwd
+	ssh.PWD = pwd
 	bot.Send(api.NewMessage(chatID, "Current directory:\n\n"+pwd))
 	log.Printf("[INFO] Current directory: %s", pwd)
 }
@@ -59,7 +71,7 @@ func main() {
 	env := &env.Env{}
 	env.GetEnv()
 
-	param := &Param{}
+	ssh := &SSH{}
 
 	bot, err := api.NewBotAPI(env.TELEGRAM_BOT_TOKEN)
 	if err != nil {
@@ -95,12 +107,13 @@ func main() {
 		log.Printf("[INFO] Request from %s %s (%s - %d): %s", firstName, LastName, userName, chatID, message)
 
 		if message == "/localhost" {
-			param.SSH_MODE = false
+			ssh.SSH_MODE = false
 			bot.Send(api.NewMessage(chatID, "Connection to localhost"))
 			log.Println("[INFO] Connection to localhost")
 			continue
 		}
 
+		// Buttons menu...
 		if message == "/host_list" {
 			response := "List of hosts for ssh connection\n\n"
 			for _, host := range env.SSH_HOST_LIST {
@@ -113,44 +126,36 @@ func main() {
 		}
 
 		if strings.HasPrefix(message, "/ssh") {
-			param.SSH_MODE = true
+			ssh.SSH_MODE = true
 			selectedHost := strings.TrimSpace(strings.Replace(message, "/ssh", "", 1))
-			param.SSH_HOST, param.SSH_USER, param.SSH_PORT = param.sshParamParse(selectedHost, env)
+			ssh.SSH_HOST, ssh.SSH_USER, ssh.SSH_PORT = ssh.paramParse(selectedHost, env)
 			bot.Send(api.NewMessage(chatID, "Connection to "+selectedHost))
 			log.Println("[INFO] Connection to " + selectedHost)
-			output, err := exec.Command(
-				"ssh",
-				"-o", "ConnectTimeout="+env.SSH_CONNECT_TIMEOUT,
-				param.SSH_USER+"@"+param.SSH_HOST,
-				"-p", param.SSH_PORT,
-				env.LINUX_SHELL, "-c",
-				"'"+"uname -a"+"'",
-			).CombinedOutput()
+			output, err := ssh.runCommand("uname -a", env)
 			if err != nil {
 				// Backchange last message
-				log.Println("Connection error: " + string(output))
+				log.Println("[ERROR] Connection error: " + string(output))
 				bot.Send(api.NewMessage(chatID, "Connection error:\n\n"+string(output)))
+				continue
 			} else {
-				log.Println("Connection successful")
+				log.Println("[INFO] Connection successful")
 				bot.Send(api.NewMessage(chatID, "Connection successful:\n\n"+string(output)))
-				output, err = exec.Command(
-					"ssh",
-					"-o", "ConnectTimeout="+env.SSH_CONNECT_TIMEOUT,
-					param.SSH_USER+"@"+param.SSH_HOST,
-					"-p", param.SSH_PORT,
-					env.LINUX_SHELL, "-c",
-					"'"+"pwd"+"'",
-				).CombinedOutput()
-				param.PWD = string(output)
+				output, err = ssh.runCommand("pwd", env)
+				if err != nil {
+					log.Println("[ERROR] Connection error: " + string(output))
+					bot.Send(api.NewMessage(chatID, "Connection error:\n\n"+string(output)))
+					continue
+				}
+				ssh.PWD = string(output)
 			}
 			continue
 		}
 
 		if strings.HasPrefix(message, "cd ") {
-			if param.SSH_MODE {
+			if ssh.SSH_MODE {
 
 			} else {
-				param.changeDir(bot, chatID, message)
+				ssh.changeDir(bot, chatID, message)
 			}
 			continue
 		}
@@ -158,16 +163,9 @@ func main() {
 		var output []byte
 		var err error
 		var SHELL string
-		if param.SSH_MODE {
+		if ssh.SSH_MODE {
 			// prep cd
-			output, err = exec.Command(
-				"ssh",
-				"-o", "ConnectTimeout="+env.SSH_CONNECT_TIMEOUT,
-				param.SSH_USER+"@"+param.SSH_HOST,
-				"-p", param.SSH_PORT,
-				env.LINUX_SHELL, "-c",
-				"'"+message+"'",
-			).CombinedOutput()
+			output, err = ssh.runCommand(message, env)
 		} else {
 			if runtime.GOOS == "windows" {
 				SHELL = env.WIN_SHELL
@@ -183,6 +181,7 @@ func main() {
 			continue
 		}
 
+		// + hostname
 		bot.Send(api.NewMessage(chatID, string(output)))
 		if env.LOG_MODE == "DEBUG" {
 			lines := strings.Split(strings.TrimSpace(string(output)), "\n")
