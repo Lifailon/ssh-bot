@@ -107,20 +107,22 @@ func main() {
 
 		if message == "/localhost" {
 			ssh.SSH_MODE = false
-			bot.Send(api.NewMessage(chatID, "Connection to localhost"))
+			messageOutput := api.NewMessage(chatID, "Connection to `localhost`")
+			messageOutput.ParseMode = api.ModeMarkdown
+			bot.Send(messageOutput)
 			log.Println("[INFO] Connection to localhost")
 			continue
 		}
 
-		// Buttons menu...
+		// Add buttons menu
 		if message == "/host_list" {
 			response := "List of hosts for ssh connection\n\n"
 			for _, host := range env.SSH_HOST_LIST {
 				response += "`/ssh " + host + "`\n"
 			}
-			msg := api.NewMessage(chatID, response)
-			msg.ParseMode = api.ModeMarkdown
-			bot.Send(msg)
+			messageOutput := api.NewMessage(chatID, response)
+			messageOutput.ParseMode = api.ModeMarkdown
+			bot.Send(messageOutput)
 			continue
 		}
 
@@ -128,23 +130,23 @@ func main() {
 			ssh.SSH_MODE = true
 			selectedHost := strings.TrimSpace(strings.Replace(message, "/ssh", "", 1))
 			ssh.SSH_HOST, ssh.SSH_USER, ssh.SSH_PORT = ssh.paramParse(selectedHost, env)
-			bot.Send(api.NewMessage(chatID, "Connection to "+selectedHost))
+			sendMessage, _ := bot.Send(api.NewMessage(chatID, "Connection to "+selectedHost))
+			lastMessageID := sendMessage.MessageID
 			log.Println("[INFO] Connection to " + selectedHost)
 			output, err := ssh.runCommand("uname -a", env)
 			if err != nil {
-				// Backchange last message
+				outputMessage := "Connection error to " + selectedHost + "\n\n" + "```Error\n" + string(output) + "```"
+				editMessage := api.NewEditMessageText(chatID, lastMessageID, outputMessage)
+				editMessage.ParseMode = api.ModeMarkdown
+				bot.Send(editMessage)
 				log.Println("[ERROR] Connection error: " + string(output))
-				bot.Send(api.NewMessage(chatID, "Connection error:\n\n"+string(output)))
-				continue
 			} else {
+				outputMessage := "Connection successful to " + selectedHost + "\n\n" + "```Info\n" + string(output) + "```"
+				editMessage := api.NewEditMessageText(chatID, lastMessageID, outputMessage)
+				editMessage.ParseMode = api.ModeMarkdown
+				bot.Send(editMessage)
 				log.Println("[INFO] Connection successful")
-				bot.Send(api.NewMessage(chatID, "Connection successful:\n\n"+string(output)))
-				output, err = ssh.runCommand("pwd", env)
-				if err != nil {
-					log.Println("[ERROR] Connection error: " + string(output))
-					bot.Send(api.NewMessage(chatID, "Connection error:\n\n"+string(output)))
-					continue
-				}
+				output, _ = ssh.runCommand("pwd", env)
 				ssh.PWD = strings.TrimSpace(string(output))
 			}
 			continue
