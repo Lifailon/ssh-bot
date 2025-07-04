@@ -20,6 +20,7 @@ type SSH struct {
 	SSH_PORT string
 }
 
+// Get parameters for ssh connection from env
 func (ssh *SSH) paramParse(host string, env *env.Env) (string, string, string) {
 	var userName, port string
 	if strings.Contains(host, "@") {
@@ -39,6 +40,7 @@ func (ssh *SSH) paramParse(host string, env *env.Env) (string, string, string) {
 	return host, userName, port
 }
 
+// Execution command on remote host via ssh
 func (ssh *SSH) runCommand(command string, env *env.Env) ([]byte, error) {
 	output, err := exec.Command(
 		"ssh",
@@ -51,6 +53,7 @@ func (ssh *SSH) runCommand(command string, env *env.Env) ([]byte, error) {
 	return output, err
 }
 
+// Change directory on localhost
 func (ssh *SSH) localChangeDir(bot *api.BotAPI, chatID int64, message string) {
 	newPath := strings.TrimSpace(message[3:])
 	err := os.Chdir(newPath)
@@ -81,6 +84,7 @@ func main() {
 	u.Timeout = 30
 	updates := bot.GetUpdatesChan(u)
 
+	// Main menu
 	commands := []api.BotCommand{
 		{Command: "localhost", Description: "Connect to localhost"},
 		{Command: "host_list", Description: "List of hosts for ssh connection"},
@@ -91,20 +95,43 @@ func main() {
 	}
 
 	for update := range updates {
-		chatID := update.Message.Chat.ID
-		firstName := update.Message.Chat.FirstName
-		LastName := update.Message.Chat.LastName
-		userName := update.Message.Chat.UserName
-		message := update.Message.Text
-
-		if chatID != env.TELEGRAM_USER_ID {
-			bot.Send(api.NewMessage(chatID, "Access denied"))
-			log.Printf("[WARN] Unauthorized access from %s %s (%s - %d)", firstName, LastName, userName, chatID)
+		// Get parameters from message/menu and callback query (keyboard)
+		var chatID int64
+		var firstName string
+		var lastName string
+		var userName string
+		var message string
+		switch {
+		case update.Message != nil:
+			chatID = update.Message.Chat.ID
+			firstName = update.Message.Chat.FirstName
+			lastName = update.Message.Chat.LastName
+			userName = update.Message.Chat.UserName
+			message = update.Message.Text
+		case update.CallbackQuery != nil:
+			chatID = update.CallbackQuery.Message.Chat.ID
+			firstName = update.CallbackQuery.From.FirstName
+			lastName = update.CallbackQuery.From.LastName
+			userName = update.CallbackQuery.From.UserName
+			message = update.CallbackQuery.Data
+			_, err = bot.Request(api.NewCallback(update.CallbackQuery.ID, ""))
+			if err != nil {
+				log.Printf("[ERROR] %s", string(err.Error()))
+			}
+		default:
 			continue
 		}
 
-		log.Printf("[INFO] Request from %s %s (%s - %d): %s", firstName, LastName, userName, chatID, message)
+		// Access check
+		if chatID != env.TELEGRAM_USER_ID {
+			bot.Send(api.NewMessage(chatID, "Access denied"))
+			log.Printf("[WARN] Unauthorized access from %s %s (%s - %d)", firstName, lastName, userName, chatID)
+			continue
+		}
 
+		log.Printf("[INFO] Request from %s %s (%s - %d): %s", firstName, lastName, userName, chatID, message)
+
+		// Switch to localhost
 		if message == "/localhost" {
 			ssh.SSH_MODE = false
 			messageOutput := api.NewMessage(chatID, "Connection to `localhost`")
@@ -114,18 +141,21 @@ func main() {
 			continue
 		}
 
-		// Add buttons menu
+		// Get keyboard buttons from host list
 		if message == "/host_list" {
-			response := "List of hosts for ssh connection\n\n"
+			var keyboardButton [][]api.InlineKeyboardButton
 			for _, host := range env.SSH_HOST_LIST {
-				response += "`/ssh " + host + "`\n"
+				btn := api.NewInlineKeyboardButtonData(host, "/ssh "+host)
+				keyboardButton = append(keyboardButton, []api.InlineKeyboardButton{btn})
 			}
-			messageOutput := api.NewMessage(chatID, response)
-			messageOutput.ParseMode = api.ModeMarkdown
-			bot.Send(messageOutput)
+			keyboard := api.NewInlineKeyboardMarkup(keyboardButton...)
+			msg := api.NewMessage(chatID, "Select host to ssh connection:")
+			msg.ReplyMarkup = keyboard
+			bot.Send(msg)
 			continue
 		}
 
+		// Switch to selected host via ssh
 		if strings.HasPrefix(message, "/ssh") {
 			ssh.SSH_MODE = true
 			selectedHost := strings.TrimSpace(strings.Replace(message, "/ssh", "", 1))
@@ -135,14 +165,14 @@ func main() {
 			log.Println("[INFO] Connection to " + selectedHost)
 			output, err := ssh.runCommand("uname -a", env)
 			if err != nil {
-				outputMessage := "Connection error to " + selectedHost + "\n\n" + "```Error\n" + string(output) + "```"
-				editMessage := api.NewEditMessageText(chatID, lastMessageID, outputMessage)
+				msg := "Connection error to " + selectedHost + "\n\n" + "```Error\n" + string(output) + "```"
+				editMessage := api.NewEditMessageText(chatID, lastMessageID, msg)
 				editMessage.ParseMode = api.ModeMarkdown
 				bot.Send(editMessage)
 				log.Println("[ERROR] Connection error: " + string(output))
 			} else {
-				outputMessage := "Connection successful to " + selectedHost + "\n\n" + "```Info\n" + string(output) + "```"
-				editMessage := api.NewEditMessageText(chatID, lastMessageID, outputMessage)
+				msg := "Connection successful to " + selectedHost + "\n\n" + "```Info\n" + string(output) + "```"
+				editMessage := api.NewEditMessageText(chatID, lastMessageID, msg)
 				editMessage.ParseMode = api.ModeMarkdown
 				bot.Send(editMessage)
 				log.Println("[INFO] Connection successful")
@@ -152,7 +182,9 @@ func main() {
 			continue
 		}
 
+		// Change directory
 		if strings.HasPrefix(message, "cd ") {
+			// Get path via ssh
 			if ssh.SSH_MODE {
 				command := "cd " + ssh.PWD + " && " + message + " && pwd"
 				output, err := ssh.runCommand(command, env)
@@ -165,15 +197,18 @@ func main() {
 				bot.Send(api.NewMessage(chatID, "Current directory:\n\n"+ssh.PWD))
 				log.Printf("[INFO] Current directory: %s", ssh.PWD)
 			} else {
+				// Change local directory via os library
 				ssh.localChangeDir(bot, chatID, message)
 			}
 			continue
 		}
 
+		// Run command for execution
 		var output []byte
 		var err error
 		var SHELL string
 		if ssh.SSH_MODE {
+			// Remote (ssh): change directory + run command
 			command := "cd " + ssh.PWD + " && " + message
 			output, err = ssh.runCommand(command, env)
 		} else {
@@ -184,18 +219,18 @@ func main() {
 			}
 			output, err = exec.Command(SHELL, "-c", message).CombinedOutput()
 		}
-		var outputMessage string
+		var msg string
 		if ssh.SSH_MODE {
-			outputMessage = ssh.SSH_HOST + ":\n\n" + string(output)
+			msg = ssh.SSH_HOST + ":\n\n" + string(output)
 		} else {
-			outputMessage = string(output)
+			msg = string(output)
 		}
 		if err != nil {
-			bot.Send(api.NewMessage(chatID, "Execution error:\n\n"+outputMessage))
-			log.Printf("[ERROR] Execution error: %s", outputMessage)
+			bot.Send(api.NewMessage(chatID, "Execution error:\n\n"+msg))
+			log.Printf("[ERROR] Execution error: %s", msg)
 			continue
 		}
-		bot.Send(api.NewMessage(chatID, outputMessage))
+		bot.Send(api.NewMessage(chatID, msg))
 		if env.LOG_MODE == "DEBUG" {
 			if ssh.SSH_MODE {
 				log.Printf("[DEBUG] Response from %v:", ssh.SSH_HOST)
