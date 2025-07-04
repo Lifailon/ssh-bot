@@ -7,7 +7,7 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/Lifailon/ssh-bot/pkg/env"
+	env "github.com/Lifailon/ssh-bot/pkg/env"
 
 	api "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
@@ -51,16 +51,15 @@ func (ssh *SSH) runCommand(command string, env *env.Env) ([]byte, error) {
 	return output, err
 }
 
-func (ssh *SSH) changeDir(bot *api.BotAPI, chatID int64, message string) {
+func (ssh *SSH) localChangeDir(bot *api.BotAPI, chatID int64, message string) {
 	newPath := strings.TrimSpace(message[3:])
 	err := os.Chdir(newPath)
 	if err != nil {
-		bot.Send(api.NewMessage(chatID, "Execution error:\n\n"+err.Error()))
+		bot.Send(api.NewMessage(chatID, "Error changing directory:\n\n"+err.Error()))
 		log.Printf("[ERROR] Error changing directory: %s", err.Error())
 		return
 	}
 	pwd, _ := os.Getwd()
-	ssh.PWD = pwd
 	bot.Send(api.NewMessage(chatID, "Current directory:\n\n"+pwd))
 	log.Printf("[INFO] Current directory: %s", pwd)
 }
@@ -146,16 +145,25 @@ func main() {
 					bot.Send(api.NewMessage(chatID, "Connection error:\n\n"+string(output)))
 					continue
 				}
-				ssh.PWD = string(output)
+				ssh.PWD = strings.TrimSpace(string(output))
 			}
 			continue
 		}
 
 		if strings.HasPrefix(message, "cd ") {
 			if ssh.SSH_MODE {
-
+				command := "cd " + ssh.PWD + " && " + message + " && pwd"
+				output, err := ssh.runCommand(command, env)
+				if err != nil {
+					bot.Send(api.NewMessage(chatID, "Error changing directory:\n\n"+err.Error()))
+					log.Printf("[ERROR] Error changing directory: %s", err.Error())
+					continue
+				}
+				ssh.PWD = strings.TrimSpace(string(output))
+				bot.Send(api.NewMessage(chatID, "Current directory:\n\n"+ssh.PWD))
+				log.Printf("[INFO] Current directory: %s", ssh.PWD)
 			} else {
-				ssh.changeDir(bot, chatID, message)
+				ssh.localChangeDir(bot, chatID, message)
 			}
 			continue
 		}
@@ -164,8 +172,8 @@ func main() {
 		var err error
 		var SHELL string
 		if ssh.SSH_MODE {
-			// prep cd
-			output, err = ssh.runCommand(message, env)
+			command := "cd " + ssh.PWD + " && " + message
+			output, err = ssh.runCommand(command, env)
 		} else {
 			if runtime.GOOS == "windows" {
 				SHELL = env.WIN_SHELL
@@ -174,16 +182,24 @@ func main() {
 			}
 			output, err = exec.Command(SHELL, "-c", message).CombinedOutput()
 		}
-
+		var outputMessage string
+		if ssh.SSH_MODE {
+			outputMessage = ssh.SSH_HOST + ":\n\n" + string(output)
+		} else {
+			outputMessage = string(output)
+		}
 		if err != nil {
-			bot.Send(api.NewMessage(chatID, "Execution error:\n\n"+string(output)))
-			log.Printf("[ERROR] Execution error: %s", string(output))
+			bot.Send(api.NewMessage(chatID, "Execution error:\n\n"+outputMessage))
+			log.Printf("[ERROR] Execution error: %s", outputMessage)
 			continue
 		}
-
-		// + hostname
-		bot.Send(api.NewMessage(chatID, string(output)))
+		bot.Send(api.NewMessage(chatID, outputMessage))
 		if env.LOG_MODE == "DEBUG" {
+			if ssh.SSH_MODE {
+				log.Printf("[DEBUG] Response from %v:", ssh.SSH_HOST)
+			} else {
+				log.Printf("[DEBUG] Response from localhost:")
+			}
 			lines := strings.Split(strings.TrimSpace(string(output)), "\n")
 			for _, line := range lines {
 				log.Printf("[DEBUG] %s", line)
