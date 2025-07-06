@@ -44,6 +44,7 @@ func (ssh *SSH) paramParse(host string, env *env.Env) (string, string, string) {
 func (ssh *SSH) runCommand(command string, env *env.Env) ([]byte, error) {
 	output, err := exec.Command(
 		"ssh",
+		"-o", "StrictHostKeyChecking=no",
 		"-o", "ConnectTimeout="+env.SSH_CONNECT_TIMEOUT,
 		ssh.SSH_USER+"@"+ssh.SSH_HOST,
 		"-p", ssh.SSH_PORT,
@@ -58,7 +59,7 @@ func (ssh *SSH) localChangeDir(bot *api.BotAPI, chatID int64, message string) {
 	newPath := strings.TrimSpace(message[3:])
 	err := os.Chdir(newPath)
 	if err != nil {
-		msg := api.NewMessage(chatID, "⚠ Error changing directory:\n\n```Error (go)\n"+err.Error()+"```")
+		msg := api.NewMessage(chatID, "⚠ Error changing directory:\n\n```Go\n"+err.Error()+"```")
 		msg.ParseMode = api.ModeMarkdown
 		bot.Send(msg)
 		log.Printf("[ERROR] Error changing directory: %s", err.Error())
@@ -104,20 +105,20 @@ func main() {
 		var firstName string
 		var lastName string
 		var userName string
-		var message string
+		var messageText string
 		switch {
 		case update.Message != nil:
 			chatID = update.Message.Chat.ID
 			firstName = update.Message.Chat.FirstName
 			lastName = update.Message.Chat.LastName
 			userName = update.Message.Chat.UserName
-			message = update.Message.Text
+			messageText = update.Message.Text
 		case update.CallbackQuery != nil:
 			chatID = update.CallbackQuery.Message.Chat.ID
 			firstName = update.CallbackQuery.From.FirstName
 			lastName = update.CallbackQuery.From.LastName
 			userName = update.CallbackQuery.From.UserName
-			message = update.CallbackQuery.Data
+			messageText = update.CallbackQuery.Data
 			_, err = bot.Request(api.NewCallback(update.CallbackQuery.ID, ""))
 			if err != nil {
 				log.Printf("[ERROR] %s", string(err.Error()))
@@ -133,10 +134,10 @@ func main() {
 			continue
 		}
 
-		log.Printf("[INFO] Request from %s %s (%s - %d): %s", firstName, lastName, userName, chatID, message)
+		log.Printf("[INFO] Request from %s %s (%s - %d): %s", firstName, lastName, userName, chatID, messageText)
 
 		// Switch to localhost
-		if message == "/localhost" {
+		if messageText == "/localhost" {
 			ssh.SSH_MODE = false
 			messageOutput := api.NewMessage(chatID, "Connection to `localhost`")
 			messageOutput.ParseMode = api.ModeMarkdown
@@ -146,7 +147,7 @@ func main() {
 		}
 
 		// Disconnect from ssh
-		if message == "exit" {
+		if messageText == "exit" {
 			if ssh.SSH_MODE {
 				ssh.SSH_MODE = false
 				messageOutput := api.NewMessage(chatID, "Disconnect from `"+ssh.SSH_HOST+"`")
@@ -158,7 +159,7 @@ func main() {
 		}
 
 		// Send keyboard buttons from host list
-		if message == "/host_list" {
+		if messageText == "/host_list" {
 			var keyboardButton [][]api.InlineKeyboardButton
 			for _, host := range env.SSH_HOST_LIST {
 				btn := api.NewInlineKeyboardButtonData(host, "/ssh "+host)
@@ -172,9 +173,9 @@ func main() {
 		}
 
 		// Switch to selected host via ssh
-		if strings.HasPrefix(message, "/ssh") {
+		if strings.HasPrefix(messageText, "/ssh") {
 			ssh.SSH_MODE = true
-			selectedHost := strings.TrimSpace(strings.Replace(message, "/ssh", "", 1))
+			selectedHost := strings.TrimSpace(strings.Replace(messageText, "/ssh", "", 1))
 			if len(selectedHost) == 0 {
 				messageOutput := api.NewMessage(chatID, "Host name not specified\n\nPass the host name as a parameter, for example: `/ssh 127.0.0.1`")
 				messageOutput.ParseMode = api.ModeMarkdown
@@ -206,13 +207,13 @@ func main() {
 		}
 
 		// Change directory
-		if strings.HasPrefix(message, "cd ") {
+		if strings.HasPrefix(messageText, "cd ") {
 			// Get path via ssh
 			if ssh.SSH_MODE {
-				command := "cd " + ssh.PWD + " && " + message + " && pwd"
+				command := "cd " + ssh.PWD + " && " + messageText + " && pwd"
 				output, err := ssh.runCommand(command, env)
 				if err != nil {
-					msg := api.NewMessage(chatID, "⚠ Error changing directory:\n\n```Error (ssh)\n"+string(output)+"```")
+					msg := api.NewMessage(chatID, "⚠ Error changing directory:\n\n```ssh\n"+string(output)+"```")
 					msg.ParseMode = api.ModeMarkdown
 					bot.Send(msg)
 					log.Printf("[ERROR] Error changing directory: %s", string(output))
@@ -225,7 +226,7 @@ func main() {
 				log.Printf("[INFO] Current directory: %s", ssh.PWD)
 			} else {
 				// Change local directory via os library
-				ssh.localChangeDir(bot, chatID, message)
+				ssh.localChangeDir(bot, chatID, messageText)
 			}
 			continue
 		}
@@ -236,7 +237,7 @@ func main() {
 		var SHELL string
 		if ssh.SSH_MODE {
 			// Remote (ssh): change directory + run command
-			command := "cd " + ssh.PWD + " && " + message
+			command := "cd " + ssh.PWD + " && " + messageText
 			output, err = ssh.runCommand(command, env)
 		} else {
 			if runtime.GOOS == "windows" {
@@ -244,11 +245,11 @@ func main() {
 			} else {
 				SHELL = env.LINUX_SHELL
 			}
-			output, err = exec.Command(SHELL, "-c", message).CombinedOutput()
+			output, err = exec.Command(SHELL, "-c", messageText).CombinedOutput()
 		}
 		var out string
 		if ssh.SSH_MODE {
-			out = "`" + ssh.SSH_HOST + "`\n\n```" + env.LINUX_SHELL + "\n" + string(output) + "```"
+			out = "Response from `" + ssh.SSH_HOST + "`\n```" + env.LINUX_SHELL + "\n" + string(output) + "```"
 		} else {
 			if SHELL == "pwsh" {
 				SHELL = "powershell"
@@ -259,15 +260,17 @@ func main() {
 			if ssh.SSH_MODE {
 				out = "⚠ Execution error on " + out
 			} else {
-				out = "⚠ Execution error\n\n" + out
+				out = "⚠ Execution error\n" + out
 			}
 			msg := api.NewMessage(chatID, out)
+			msg.ReplyToMessageID = update.Message.MessageID
 			msg.ParseMode = api.ModeMarkdown
 			bot.Send(msg)
-			log.Printf("[ERROR] Execution error %s", out)
+			log.Printf("[ERROR] Execution error on %s: %s", ssh.SSH_HOST, string(output))
 			continue
 		}
 		msg := api.NewMessage(chatID, out)
+		msg.ReplyToMessageID = update.Message.MessageID
 		msg.ParseMode = api.ModeMarkdown
 		bot.Send(msg)
 		if env.LOG_MODE == "DEBUG" {
