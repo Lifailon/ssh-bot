@@ -32,19 +32,25 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
-      - name: Check dependency versions
-        if: ${{ github.event.inputs.Docker == 'true' }}
-        run: |
-          docker version
-          docker buildx version
-        continue-on-error: true
+      - name: Install Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          driver: docker-container
+          install: true
 
-      - name: Build and push Docker image
+      - name: Install QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Build and push Docker images for amd64 and arm64
         if: ${{ github.event.inputs.Docker == 'true' }}
         run: |
           # docker build -t lifailon/ssh-bot:latest .
           # docker push lifailon/ssh-bot:latest
-          docker buildx build --platform linux/amd64,linux/arm64 -t lifailon/ssh-bot --push .
+          docker buildx build \
+            --platform \
+            linux/amd64,linux/arm64 \
+            -t lifailon/ssh-bot \
+            --push .
         continue-on-error: true
 
       - name: Install Go
