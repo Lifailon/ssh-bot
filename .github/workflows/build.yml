@@ -33,6 +33,7 @@ jobs:
           password: ${{ secrets.DOCKER_PASSWORD }}
 
       - name: Install Docker Buildx
+        if: ${{ github.event.inputs.Docker == 'true' }}
         uses: docker/setup-buildx-action@v3
         with:
           driver: docker-container
@@ -82,18 +83,19 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ssh-bot-windows-${{ github.event.inputs.Version }}
-          path: bin/ssh-bot-windows/*
-
+          path: |
+            bin/ssh-bot-windows/ssh-bot.exe
+            bin/ssh-bot-windows/.env
       - name: Upload binaries for Linux
         if: ${{ github.event.inputs.Binary == 'true' }}
         uses: actions/upload-artifact@v4
         with:
           name: ssh-bot-linux-${{ github.event.inputs.Version }}
-          path: bin/ssh-bot-linux/*
+          path: bin/ssh-bot-linux/**
 
       - name: Upload binaries for Raspberry Pi
         if: ${{ github.event.inputs.Binary == 'true' }}
         uses: actions/upload-artifact@v4
         with:
           name: ssh-bot-raspberry-pi-${{ github.event.inputs.Version }}
-          path: bin/ssh-bot-raspberry-pi/*
+          path: bin/ssh-bot-raspberry-pi/
