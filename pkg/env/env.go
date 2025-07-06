@@ -15,19 +15,22 @@ type Env struct {
 	SSH_USER            string
 	SSH_PORT            string
 	SSH_HOSTS           string
-	SSH_HOST_LIST       []string
 	SSH_CONNECT_TIMEOUT string
+	SSH_HOST_LIST       []string
 	LOG_MODE            string
 }
 
 func (env *Env) GetEnv() {
 	data, err := os.ReadFile(".env")
+	// Check reading of env file
 	if err != nil {
-
+		log.Fatal(err)
 	}
+	// Get array strings from file
 	dataString := strings.TrimSpace(string(data))
 	lines := strings.Split(dataString, "\n")
 
+	// Remove comments and lines that do not match key=value
 	var linesNotComments []string
 	for _, line := range lines {
 		if strings.HasPrefix(line, "#") {
@@ -37,6 +40,7 @@ func (env *Env) GetEnv() {
 		}
 	}
 
+	// Fill the environment
 	for _, line := range linesNotComments {
 		envArr := strings.Split(line, "=")
 		envKey := strings.TrimSpace(envArr[0])
@@ -56,17 +60,36 @@ func (env *Env) GetEnv() {
 			env.SSH_USER = strings.TrimSpace(strings.Split(envValue, "#")[0])
 		case envKey == "SSH_PORT":
 			env.SSH_PORT = strings.TrimSpace(strings.Split(envValue, "#")[0])
-		case envKey == "SSH_HOST_LIST":
-			env.SSH_HOSTS = strings.TrimSpace(strings.Split(envValue, "#")[0])
 		case envKey == "SSH_CONNECT_TIMEOUT":
 			env.SSH_CONNECT_TIMEOUT = strings.TrimSpace(strings.Split(envValue, "#")[0])
+		case envKey == "SSH_HOST_LIST":
+			env.SSH_HOSTS = strings.TrimSpace(strings.Split(envValue, "#")[0])
 		case envKey == "LOG_MODE":
 			env.LOG_MODE = strings.TrimSpace(strings.Split(envValue, "#")[0])
 		}
 	}
 
+	// Fill the default environment
+	if len(env.WIN_SHELL) == 0 {
+		env.WIN_SHELL = "powershell"
+	}
+	if len(env.LINUX_SHELL) == 0 {
+		env.LINUX_SHELL = "sh"
+	}
+	if len(env.SSH_USER) == 0 {
+		env.SSH_USER = "root"
+	}
+	if len(env.SSH_PORT) == 0 {
+		env.SSH_CONNECT_TIMEOUT = "22"
+	}
+	if len(env.SSH_CONNECT_TIMEOUT) == 0 {
+		env.SSH_CONNECT_TIMEOUT = "2"
+	}
+
+	// Get array hosts from SSH_HOST_LIST
 	env.GetHost()
 
+	// Logging env
 	if env.LOG_MODE == "DEBUG" {
 		env.PrintEnv()
 	}
@@ -88,10 +111,10 @@ func (env *Env) PrintEnv() {
 	log.Println("[ENV] LINUX_SHELL: " + env.LINUX_SHELL)
 	log.Println("[ENV] SSH_USER: " + env.SSH_USER)
 	log.Println("[ENV] SSH_PORT: " + env.SSH_PORT)
+	log.Println("[ENV] SSH_CONNECT_TIMEOUT: " + env.SSH_CONNECT_TIMEOUT)
 	log.Println("[ENV] SSH_HOST_LIST:")
 	for _, host := range env.SSH_HOST_LIST {
 		log.Println("[ENV] - " + host)
 	}
-	log.Println("[ENV] SSH_CONNECT_TIMEOUT: " + env.SSH_CONNECT_TIMEOUT)
 	log.Println()
 }
