@@ -30,6 +30,7 @@ jobs:
         if: ${{ github.event.inputs.Binary == 'true' }}
         run: |
           mkdir -p bin
+          rm -rf bin/*
           architectures=("amd64" "arm64")
           for arch in "${architectures[@]}"; do
               CGO_ENABLED=0 GOOS=windows GOARCH=$arch go build -o bin/ssh-bot-${{ github.event.inputs.Version }}-windows-$arch.exe main.go
@@ -37,13 +38,13 @@ jobs:
               # CGO_ENABLED=0 GOOS=darwin GOARCH=$arch go build -o bin/ssh-bot-${{ github.event.inputs.Version }}-darwin-$arch main.go
           done
           ls -lh bin
-          mkdir -p bin/ssh-bot-linux bin/ssh-bot-windows bin/ssh-bot-raspberry-pi
+          mkdir -p bin/{ssh-bot-linux,ssh-bot-windows,ssh-bot-raspberry-pi}
           mv bin/ssh-bot-${{ github.event.inputs.Version }}-windows-amd64.exe bin/ssh-bot-windows/ssh-bot.exe
-          cp ./.env.example bin/ssh-bot-windows/.env
+          cp "$GITHUB_WORKSPACE/.env.example" bin/ssh-bot-windows/.env
           mv bin/ssh-bot-${{ github.event.inputs.Version }}-linux-amd64 bin/ssh-bot-linux/ssh-bot
-          cp ./.env.example bin/ssh-bot-linux/.env
+          cp "$GITHUB_WORKSPACE/.env.example" bin/ssh-bot-linux/.env
           mv bin/ssh-bot-${{ github.event.inputs.Version }}-linux-arm64 bin/ssh-bot-raspberry-pi/ssh-bot
-          cp ./.env.example bin/ssh-bot-raspberry-pi/.env
+          cp "$GITHUB_WORKSPACE/.env.example" bin/ssh-bot-raspberry-pi/.env
           ls -lh bin/*
 
       - name: Upload binaries for Windows
