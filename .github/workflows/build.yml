@@ -32,11 +32,12 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
-      - name: Install Docker buildx
+      - name: Check dependency versions
         if: ${{ github.event.inputs.Docker == 'true' }}
         run: |
-          sudo apt install docker-buildx -y
+          docker version
           docker buildx version
+        continue-on-error: true
 
       - name: Build and push Docker image
         if: ${{ github.event.inputs.Docker == 'true' }}
@@ -44,6 +45,7 @@ jobs:
           # docker build -t lifailon/ssh-bot:latest .
           # docker push lifailon/ssh-bot:latest
           docker buildx build --platform linux/amd64,linux/arm64 -t lifailon/ssh-bot --push .
+        continue-on-error: true
 
       - name: Install Go
         if: ${{ github.event.inputs.Binary == 'true' }}
