@@ -1,0 +1,15 @@
+services:
+  ssh-bot:
+    container_name: ssh-bot
+    image: lifailon/ssh-bot:latest
+    build:
+      context: .
+      dockerfile: dockerfile
+    volumes:
+      - .env:/ssh-bot/.env
+      - $HOME/.ssh/id_rsa:/root/.ssh/id_rsa
+    restart: unless-stopped
+    # env_file: .env
+    # environment:
+    #   - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+    #   - TELEGRAM_USER_ID=${TELEGRAM_USER_ID}
