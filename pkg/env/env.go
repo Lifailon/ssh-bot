@@ -12,6 +12,7 @@ type Env struct {
 	TELEGRAM_USER_ID    int64
 	WIN_SHELL           string
 	LINUX_SHELL         string
+	PARALLEL_EXEC       bool
 	SSH_USER            string
 	SSH_PORT            string
 	SSH_HOSTS           string
@@ -56,6 +57,13 @@ func (env *Env) GetEnv() {
 			env.WIN_SHELL = strings.TrimSpace(strings.Split(envValue, "#")[0])
 		case envKey == "LINUX_SHELL":
 			env.LINUX_SHELL = strings.TrimSpace(strings.Split(envValue, "#")[0])
+		case envKey == "PARALLEL_EXEC":
+			checkType := strings.ToLower(strings.TrimSpace(strings.Split(envValue, "#")[0]))
+			if checkType == "true" {
+				env.PARALLEL_EXEC = true
+			} else {
+				env.PARALLEL_EXEC = false
+			}
 		case envKey == "SSH_USER":
 			env.SSH_USER = strings.TrimSpace(strings.Split(envValue, "#")[0])
 		case envKey == "SSH_PORT":
@@ -109,6 +117,7 @@ func (env *Env) PrintEnv() {
 	log.Printf("[ENV] TELEGRAM_USER_ID: %d \n", env.TELEGRAM_USER_ID)
 	log.Println("[ENV] WIN_SHELL: " + env.WIN_SHELL)
 	log.Println("[ENV] LINUX_SHELL: " + env.LINUX_SHELL)
+	log.Printf("[ENV] PARALLEL_EXEC: %t\n", env.PARALLEL_EXEC)
 	log.Println("[ENV] SSH_USER: " + env.SSH_USER)
 	log.Println("[ENV] SSH_PORT: " + env.SSH_PORT)
 	log.Println("[ENV] SSH_CONNECT_TIMEOUT: " + env.SSH_CONNECT_TIMEOUT)

@@ -1,2 +1,6 @@
+# Dev environment
 .env
+
+# Build files
 bin
+ssh-bot*

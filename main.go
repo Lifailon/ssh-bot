@@ -40,20 +40,6 @@ func (ssh *SSH) paramParse(host string, env *env.Env) (string, string, string) {
 	return host, userName, port
 }
 
-// Execution command on remote host via ssh
-func (ssh *SSH) runCommand(command string, env *env.Env) ([]byte, error) {
-	output, err := exec.Command(
-		"ssh",
-		"-o", "StrictHostKeyChecking=no",
-		"-o", "ConnectTimeout="+env.SSH_CONNECT_TIMEOUT,
-		ssh.SSH_USER+"@"+ssh.SSH_HOST,
-		"-p", ssh.SSH_PORT,
-		env.LINUX_SHELL, "-c",
-		"'"+command+"'",
-	).CombinedOutput()
-	return output, err
-}
-
 // Change directory on localhost
 func (ssh *SSH) localChangeDir(bot *api.BotAPI, chatID int64, message string) {
 	newPath := strings.TrimSpace(message[3:])
@@ -70,6 +56,76 @@ func (ssh *SSH) localChangeDir(bot *api.BotAPI, chatID int64, message string) {
 	msg.ParseMode = api.ModeMarkdown
 	bot.Send(msg)
 	log.Printf("[INFO] Current directory: %s", pwd)
+}
+
+// Execution command on remote host via ssh
+func (ssh *SSH) runCommand(command string, env *env.Env) ([]byte, error) {
+	output, err := exec.Command(
+		"ssh",
+		"-n",
+		"-o", "StrictHostKeyChecking=no",
+		"-o", "ConnectTimeout="+env.SSH_CONNECT_TIMEOUT,
+		ssh.SSH_USER+"@"+ssh.SSH_HOST,
+		"-p", ssh.SSH_PORT,
+		env.LINUX_SHELL, "-c",
+		"'"+command+"'",
+	).CombinedOutput()
+	return output, err
+}
+
+func (ssh *SSH) runExec(env *env.Env, bot *api.BotAPI, update api.Update, chatID int64, messageText string) {
+	var output []byte
+	var err error
+	var SHELL string
+	if ssh.SSH_MODE {
+		// Remote (ssh): change directory + run command
+		command := "cd " + ssh.PWD + " && " + messageText
+		output, err = ssh.runCommand(command, env)
+	} else {
+		if runtime.GOOS == "windows" {
+			SHELL = env.WIN_SHELL
+		} else {
+			SHELL = env.LINUX_SHELL
+		}
+		output, err = exec.Command(SHELL, "-c", messageText).CombinedOutput()
+	}
+	var out string
+	if ssh.SSH_MODE {
+		out = "Response from `" + ssh.SSH_HOST + "`\n```" + env.LINUX_SHELL + "\n" + string(output) + "```"
+	} else {
+		if SHELL == "pwsh" {
+			SHELL = "powershell"
+		}
+		out = "```" + SHELL + "\n" + string(output) + "```"
+	}
+	if err != nil {
+		if ssh.SSH_MODE {
+			out = "⚠ Execution error on " + out
+		} else {
+			out = "⚠ Execution error\n" + out
+		}
+		msg := api.NewMessage(chatID, out)
+		msg.ReplyToMessageID = update.Message.MessageID
+		msg.ParseMode = api.ModeMarkdown
+		bot.Send(msg)
+		log.Printf("[ERROR] Execution error on %s: %s", ssh.SSH_HOST, string(output))
+	} else {
+		msg := api.NewMessage(chatID, out)
+		msg.ReplyToMessageID = update.Message.MessageID
+		msg.ParseMode = api.ModeMarkdown
+		bot.Send(msg)
+		if env.LOG_MODE == "DEBUG" {
+			if ssh.SSH_MODE {
+				log.Printf("[DEBUG] Response from %v:", ssh.SSH_HOST)
+			} else {
+				log.Printf("[DEBUG] Response from localhost:")
+			}
+			lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+			for _, line := range lines {
+				log.Printf("[DEBUG] %s", line)
+			}
+		}
+	}
 }
 
 func main() {
@@ -91,8 +147,9 @@ func main() {
 
 	// Main menu
 	commands := []api.BotCommand{
-		{Command: "localhost", Description: "Connect to localhost"},
+		{Command: "localhost", Description: "Connect to localhost (disconnect from remote host)"},
 		{Command: "host_list", Description: "List of hosts for ssh connection"},
+		{Command: "ssh", Description: "Connect to the specified host (example: /ssh 192.168.1.1)"},
 	}
 	_, err = bot.Request(api.NewSetMyCommands(commands...))
 	if err != nil {
@@ -177,7 +234,7 @@ func main() {
 			ssh.SSH_MODE = true
 			selectedHost := strings.TrimSpace(strings.Replace(messageText, "/ssh", "", 1))
 			if len(selectedHost) == 0 {
-				messageOutput := api.NewMessage(chatID, "Host name not specified\n\nPass the host name as a parameter, for example: `/ssh 127.0.0.1`")
+				messageOutput := api.NewMessage(chatID, "Host name not specified\n\nPass the host name as a parameter, for example: `/ssh 192.168.1.1`")
 				messageOutput.ParseMode = api.ModeMarkdown
 				bot.Send(messageOutput)
 				log.Println("[ERROR] Host name not specified")
@@ -232,57 +289,10 @@ func main() {
 		}
 
 		// Run command for execution
-		var output []byte
-		var err error
-		var SHELL string
-		if ssh.SSH_MODE {
-			// Remote (ssh): change directory + run command
-			command := "cd " + ssh.PWD + " && " + messageText
-			output, err = ssh.runCommand(command, env)
+		if env.PARALLEL_EXEC {
+			go ssh.runExec(env, bot, update, chatID, messageText)
 		} else {
-			if runtime.GOOS == "windows" {
-				SHELL = env.WIN_SHELL
-			} else {
-				SHELL = env.LINUX_SHELL
-			}
-			output, err = exec.Command(SHELL, "-c", messageText).CombinedOutput()
-		}
-		var out string
-		if ssh.SSH_MODE {
-			out = "Response from `" + ssh.SSH_HOST + "`\n```" + env.LINUX_SHELL + "\n" + string(output) + "```"
-		} else {
-			if SHELL == "pwsh" {
-				SHELL = "powershell"
-			}
-			out = "```" + SHELL + "\n" + string(output) + "```"
-		}
-		if err != nil {
-			if ssh.SSH_MODE {
-				out = "⚠ Execution error on " + out
-			} else {
-				out = "⚠ Execution error\n" + out
-			}
-			msg := api.NewMessage(chatID, out)
-			msg.ReplyToMessageID = update.Message.MessageID
-			msg.ParseMode = api.ModeMarkdown
-			bot.Send(msg)
-			log.Printf("[ERROR] Execution error on %s: %s", ssh.SSH_HOST, string(output))
-			continue
-		}
-		msg := api.NewMessage(chatID, out)
-		msg.ReplyToMessageID = update.Message.MessageID
-		msg.ParseMode = api.ModeMarkdown
-		bot.Send(msg)
-		if env.LOG_MODE == "DEBUG" {
-			if ssh.SSH_MODE {
-				log.Printf("[DEBUG] Response from %v:", ssh.SSH_HOST)
-			} else {
-				log.Printf("[DEBUG] Response from localhost:")
-			}
-			lines := strings.Split(strings.TrimSpace(string(output)), "\n")
-			for _, line := range lines {
-				log.Printf("[DEBUG] %s", line)
-			}
+			ssh.runExec(env, bot, update, chatID, messageText)
 		}
 	}
 }
