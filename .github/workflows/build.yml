@@ -75,27 +75,27 @@ jobs:
           cp ./.env.example bin/ssh-bot-linux/.env
           mv bin/ssh-bot-${{ github.event.inputs.Version }}-linux-arm64 bin/ssh-bot-raspberry-pi/ssh-bot
           cp ./.env.example bin/ssh-bot-raspberry-pi/.env
-          chmod 644 bin/ssh-bot-{windows,linux,raspberry-pi}/.env
           ls -lha bin/*
+          tar -cvf bin/ssh-bot-windows.tar -C bin/ssh-bot-windows/ ssh-bot.exe .env
+          tar -cvf bin/ssh-bot-linux.tar -C bin/ssh-bot-linux/ ssh-bot .env
+          tar -cvf bin/ssh-bot-raspberry-pi.tar -C bin/ssh-bot-raspberry-pi/ ssh-bot .env
 
       - name: Upload binaries for Windows
         if: ${{ github.event.inputs.Binary == 'true' }}
         uses: actions/upload-artifact@v4
         with:
           name: ssh-bot-windows-${{ github.event.inputs.Version }}
-          path: |
-            bin/ssh-bot-windows/ssh-bot.exe
-            bin/ssh-bot-windows/.env
+          path: bin/ssh-bot-windows.tar
       - name: Upload binaries for Linux
         if: ${{ github.event.inputs.Binary == 'true' }}
         uses: actions/upload-artifact@v4
         with:
           name: ssh-bot-linux-${{ github.event.inputs.Version }}
-          path: bin/ssh-bot-linux/**
+          path: bin/ssh-bot-linux.tar
 
       - name: Upload binaries for Raspberry Pi
         if: ${{ github.event.inputs.Binary == 'true' }}
         uses: actions/upload-artifact@v4
         with:
           name: ssh-bot-raspberry-pi-${{ github.event.inputs.Version }}
-          path: bin/ssh-bot-raspberry-pi/
+          path: bin/ssh-bot-raspberry-pi.tar
