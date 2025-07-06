@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       Docker:
-        description: 'Build and Push to Docker Hub'
+        description: 'Build and push to Docker Hub'
         default: false
         type: boolean
       Binary:
@@ -38,9 +38,6 @@ jobs:
           driver: docker-container
           install: true
 
-      - name: Install QEMU
-        uses: docker/setup-qemu-action@v3
-
       - name: Build and push Docker images for amd64 and arm64
         if: ${{ github.event.inputs.Docker == 'true' }}
         run: |
@@ -62,7 +59,6 @@ jobs:
       - name: Build binaries
         if: ${{ github.event.inputs.Binary == 'true' }}
         run: |
-          ls -lha
           mkdir -p bin
           architectures=("amd64" "arm64")
           for arch in "${architectures[@]}"; do
@@ -78,25 +74,30 @@ jobs:
           cp ./.env.example bin/ssh-bot-linux/.env
           mv bin/ssh-bot-${{ github.event.inputs.Version }}-linux-arm64 bin/ssh-bot-raspberry-pi/ssh-bot
           cp ./.env.example bin/ssh-bot-raspberry-pi/.env
-          ls -lh bin/*
+          ls -lha bin/*
 
       - name: Upload binaries for Windows
         if: ${{ github.event.inputs.Binary == 'true' }}
         uses: actions/upload-artifact@v4
         with:
           name: ssh-bot-windows-${{ github.event.inputs.Version }}
-          path: bin/ssh-bot-windows
+          path: |
+            bin/ssh-bot-windows/ssh-bot.exe
+            bin/ssh-bot-windows/.env
 
       - name: Upload binaries for Linux
         if: ${{ github.event.inputs.Binary == 'true' }}
         uses: actions/upload-artifact@v4
         with:
           name: ssh-bot-linux-${{ github.event.inputs.Version }}
-          path: bin/ssh-bot-linux
+          path: |
+            bin/ssh-bot-linux/ssh-bot
+            bin/ssh-bot-linux/.env
 
       - name: Upload binaries for Raspberry Pi
         if: ${{ github.event.inputs.Binary == 'true' }}
         uses: actions/upload-artifact@v4
         with:
-          name: ssh-bot-raspberry-pi-${{ github.event.inputs.Version }}
-          path: bin/ssh-bot-raspberry-pi
+          path: |
+            bin/ssh-bot-raspberry-pi/ssh-bot
+            bin/ssh-bot-raspberry-pi/.env
