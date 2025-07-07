@@ -9,9 +9,11 @@
     <strong>English (🇺🇸)</strong> | <a href="README_RU.md">Русский (🇷🇺)</a>
 </h4>
 
-This is a Telegram bot that allows you to run specified commands on a remote machine and return the results of their execution. There is support for directory navigation and execution of commands on remote hosts via `ssh` without establishing a permanent connection.
+This is a Telegram bot that allows you to run specified commands on remote machines and return the result of their execution without establishing a permanent connection.
 
-The bot provides the opportunity not to waste time on setting up a `VPN` server and money on an external IP address or VPS server to access the local network, and also eliminates the need to use third-party applications (`VPN` and `ssh` clients) on a remote device and does not require a stable Internet connection.
+The bot provides the ability to not waste time setting up a `VPN` server and money on an external IP address or `VPS` server to access the local network, and also eliminates the need to use third-party applications (`VPN` and `ssh` clients) on a remote device and does not require a stable Internet connection.
+
+![example](/img/example.gif)
 
 ## Roadmap
 
@@ -75,8 +77,8 @@ docker run -d --name ssh-bot \
     lifailon/ssh-bot:latest
 ```
 
-> [!WARNING]
-> To access remote hosts, authorization is used by a key (`.ssh/id_rsa`), which must be forwarded to the container from the host system.
+> [!NOTE]
+> To access remote hosts, authorization is used by a key (in the example, `.ssh/id_rsa`), which must be forwarded to the container from the host system.
 
 ## Build
 
