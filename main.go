@@ -1,13 +1,20 @@
 package main
 
 import (
+	"bytes"
+	"fmt"
 	"log"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
+	"time"
 
 	env "github.com/Lifailon/ssh-bot/pkg/env"
+
+	sshClient "golang.org/x/crypto/ssh"
 
 	api "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
@@ -58,19 +65,91 @@ func (ssh *SSH) localChangeDir(bot *api.BotAPI, chatID int64, message string) {
 	log.Printf("[INFO] Current directory: %s", pwd)
 }
 
-// Execution command on remote host via ssh
+// func (ssh *SSH) runCommand(command string, env *env.Env) ([]byte, error) {
+// 	output, err := exec.Command(
+// 		"ssh",
+// 		"-n",
+// 		"-o", "StrictHostKeyChecking=no",
+// 		"-o", "ConnectTimeout="+env.SSH_CONNECT_TIMEOUT,
+// 		ssh.SSH_USER+"@"+ssh.SSH_HOST,
+// 		"-p", ssh.SSH_PORT,
+// 		env.LINUX_SHELL, "-c",
+// 		"'"+command+"'",
+// 	).CombinedOutput()
+// 	return output, err
+// }
+
 func (ssh *SSH) runCommand(command string, env *env.Env) ([]byte, error) {
-	output, err := exec.Command(
-		"ssh",
-		"-n",
-		"-o", "StrictHostKeyChecking=no",
-		"-o", "ConnectTimeout="+env.SSH_CONNECT_TIMEOUT,
-		ssh.SSH_USER+"@"+ssh.SSH_HOST,
-		"-p", ssh.SSH_PORT,
-		env.LINUX_SHELL, "-c",
-		"'"+command+"'",
-	).CombinedOutput()
-	return output, err
+	// Get Private Key
+	var envPath string
+	if runtime.GOOS == "windows" {
+		envPath = os.Getenv("HOMEDRIVE") + os.Getenv("HOMEPATH")
+	} else {
+		envPath = os.Getenv("HOME")
+	}
+	keyFiles, _ := filepath.Glob(envPath + "/.ssh/id_*")
+	var signer sshClient.Signer = nil
+	for _, keyFile := range keyFiles {
+		if strings.HasSuffix(keyFile, ".pub") {
+			continue
+		}
+		data, _ := os.ReadFile(keyFile)
+		signer, _ = sshClient.ParsePrivateKey(data)
+		break
+	}
+
+	// Convert timeout param
+	timeoutSeconds, _ := strconv.Atoi(env.SSH_CONNECT_TIMEOUT)
+	timeoutDuration := time.Duration(timeoutSeconds) * time.Second
+
+	// SSH main params
+	config := &sshClient.ClientConfig{
+		User:            ssh.SSH_USER,
+		HostKeyCallback: sshClient.InsecureIgnoreHostKey(), // StrictHostKeyChecking=no
+		Timeout:         time.Duration(timeoutDuration),    // ConnectTimeout
+		Auth: []sshClient.AuthMethod{
+			sshClient.Password(env.SSH_PASSWORD),
+		},
+	}
+
+	// SSH auth params
+	if keyFiles != nil {
+		config.Auth = []sshClient.AuthMethod{
+			sshClient.PublicKeys(signer),
+			sshClient.Password(env.SSH_PASSWORD),
+		}
+	} else {
+		log.Println("[WARN] Private key not found")
+		if len(env.SSH_PASSWORD) == 0 {
+			log.Println("[WARN] Password not set")
+		}
+	}
+
+	// Establishing TCP connection
+	client, err := sshClient.Dial("tcp", fmt.Sprintf("%s:%s", ssh.SSH_HOST, ssh.SSH_PORT), config)
+	if err != nil {
+		return nil, fmt.Errorf("Failed establishing tcp connection: %w", err)
+	}
+	defer client.Close()
+
+	// Creating SSH session
+	session, err := client.NewSession()
+	if err != nil {
+		return nil, fmt.Errorf("Failed creating ssh session: %w", err)
+	}
+	defer session.Close()
+
+	// Run command
+	var stdoutBuf bytes.Buffer
+	var stderrBuf bytes.Buffer
+	session.Stdout = &stdoutBuf
+	session.Stderr = &stderrBuf
+	err = session.Run(command)
+	if err != nil {
+		return append(stderrBuf.Bytes(), stdoutBuf.Bytes()...), err
+	}
+
+	return stdoutBuf.Bytes(), nil
 }
 
 func (ssh *SSH) runExec(env *env.Env, bot *api.BotAPI, update api.Update, chatID int64, messageText string) {
