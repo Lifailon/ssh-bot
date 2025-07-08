@@ -9,7 +9,3 @@ services:
       - .env:/ssh-bot/.env
       - $HOME/.ssh/id_rsa:/root/.ssh/id_rsa
     restart: unless-stopped
-    # env_file: .env
-    # environment:
-    #   - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
-    #   - TELEGRAM_USER_ID=${TELEGRAM_USER_ID}

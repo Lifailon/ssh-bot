@@ -8,7 +8,6 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -o /ssh-bot/ssh
 
 # Final image
 FROM alpine:3.20
-RUN apk add --no-cache openssh-client
 WORKDIR /ssh-bot
 COPY --from=build /ssh-bot/ssh-bot ./
 
