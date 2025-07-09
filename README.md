@@ -23,7 +23,7 @@ The bot provides the ability to not waste time setting up a `VPN` server and mon
 - [X] Support for directory navigation.
 - [X] Combined access to remote hosts by key and/or password.
 - [X] Error handling when using commands that require user input.
-- [X] Support for storing and reusing passed variables and functions (the `/exit` command clears the history).
+- [X] Support for storing and reusing passed variables and functions (the `exit` command clears the history).
 
 ## Launch
 
@@ -83,7 +83,7 @@ docker run -d --name ssh-bot \
 ```
 
 > [!NOTE]
-> To access remote hosts, authorization is used by a key (in the example, `.ssh/id_rsa`), which must be forwarded to the container from the host system.
+> The bot environment is not stored in an image, but uses a mounting mechanism. To access remote hosts using a key, you need to forward the private key file from the host system to the container (as in the example above) and leave the contents of the `SSH_PRIVATE_KEY_PATH` variable empty.
 
 ## Build
 
