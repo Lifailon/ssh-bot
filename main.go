@@ -65,22 +65,22 @@ func (ssh *SSH) localChangeDir(bot *api.BotAPI, chatID int64, message string) {
 	log.Printf("[INFO] Current directory: %s", pwd)
 }
 
-// func (ssh *SSH) runCommand(command string, env *env.Env) ([]byte, error) {
-// 	output, err := exec.Command(
-// 		"ssh",
-// 		"-n",
-// 		"-o", "StrictHostKeyChecking=no",
-// 		"-o", "ConnectTimeout="+env.SSH_CONNECT_TIMEOUT,
-// 		ssh.SSH_USER+"@"+ssh.SSH_HOST,
-// 		"-p", ssh.SSH_PORT,
-// 		env.LINUX_SHELL, "-c",
-// 		"'"+command+"'",
-// 	).CombinedOutput()
-// 	return output, err
-// }
+func (ssh *SSH) sshRunExecCommand(command string, env *env.Env) ([]byte, error) {
+	output, err := exec.Command(
+		"ssh",
+		"-n",
+		"-o", "StrictHostKeyChecking=no",
+		"-o", "ConnectTimeout="+env.SSH_CONNECT_TIMEOUT,
+		ssh.SSH_USER+"@"+ssh.SSH_HOST,
+		"-p", ssh.SSH_PORT,
+		env.LINUX_SHELL, "-c",
+		"'"+command+"'",
+	).CombinedOutput()
+	return output, err
+}
 
 // Run command via SSH
-func (ssh *SSH) runCommand(command string, env *env.Env) ([]byte, error) {
+func (ssh *SSH) sshRunCommand(command string, env *env.Env) ([]byte, error) {
 	// Get signer from private key
 	signer, _ := sshClient.ParsePrivateKey(ssh.SSH_PRIVATE_KEY)
 
@@ -133,22 +133,30 @@ func (ssh *SSH) runCommand(command string, env *env.Env) ([]byte, error) {
 	session.Stdout = &stdoutBuf
 	session.Stderr = &stderrBuf
 	err = session.Run(command)
-	if err != nil {
-		return append(stderrBuf.Bytes(), stdoutBuf.Bytes()...), err
+	if len(stderrBuf.Bytes()) > 0 {
+		return stderrBuf.Bytes(), fmt.Errorf("Execution error (error output is not empty)")
 	}
-
-	return stdoutBuf.Bytes(), nil
+	return stdoutBuf.Bytes(), err
 }
 
 // Run command on local or remote host
-func (ssh *SSH) runExec(env *env.Env, bot *api.BotAPI, update api.Update, chatID int64, messageText string) {
+func (ssh *SSH) runCommand(env *env.Env, bot *api.BotAPI, update api.Update, chatID int64, messageText string) {
 	var output []byte
 	var err error
 	var SHELL string
 	if ssh.SSH_MODE {
-		// Remote (ssh): change directory + run command
-		command := "cd " + ssh.PWD + " && " + messageText
-		output, err = ssh.runCommand(command, env)
+		var command string
+		// Import declare from temp file
+		if env.SSH_SAVE_ENV {
+			command = "[ -e /tmp/ssh-bot.temp ] && source /tmp/ssh-bot.temp; "
+		}
+		// Change directory + run command
+		command = command + "cd " + ssh.PWD + " && " + messageText
+		// Export declare in temp file
+		if env.SSH_SAVE_ENV {
+			command = command + " && declare -p | grep '^declare -- ' > /tmp/ssh-bot.temp; declare -f >> /tmp/ssh-bot.temp"
+		}
+		output, err = ssh.sshRunCommand(command, env)
 	} else {
 		if runtime.GOOS == "windows" {
 			SHELL = env.WIN_SHELL
@@ -159,25 +167,23 @@ func (ssh *SSH) runExec(env *env.Env, bot *api.BotAPI, update api.Update, chatID
 	}
 	var out string
 	if ssh.SSH_MODE {
-		out = "Response from `" + ssh.SSH_HOST + "`\n```" + env.LINUX_SHELL + "\n" + string(output) + "```"
+		out = "`" + ssh.SSH_HOST + "`\n```" + env.LINUX_SHELL + "\n" + string(output) + "```"
 	} else {
+		// Update shell for Markdown
 		if SHELL == "pwsh" {
 			SHELL = "powershell"
 		}
-		out = "```" + SHELL + "\n" + string(output) + "```"
+		out = "`localhost`\n```" + SHELL + "\n" + string(output) + "```"
 	}
 	if err != nil {
-		if ssh.SSH_MODE {
-			out = "⚠ Execution error on " + out
-		} else {
-			out = "⚠ Execution error\n" + out
-		}
+		out = "⚠ " + out
 		msg := api.NewMessage(chatID, out)
 		msg.ReplyToMessageID = update.Message.MessageID
 		msg.ParseMode = api.ModeMarkdown
 		bot.Send(msg)
 		log.Printf("[ERROR] Execution error on %s: %s", ssh.SSH_HOST, string(output))
 	} else {
+		out = "▶ " + out
 		msg := api.NewMessage(chatID, out)
 		msg.ReplyToMessageID = update.Message.MessageID
 		msg.ParseMode = api.ModeMarkdown
@@ -218,9 +224,8 @@ func main() {
 
 	// Main menu
 	commands := []api.BotCommand{
-		{Command: "localhost", Description: "Connect to localhost (disconnect from remote host)"},
 		{Command: "host_list", Description: "List of hosts for ssh connection"},
-		{Command: "ssh", Description: "Connect to the specified host (example: /ssh 192.168.1.1)"},
+		{Command: "exit", Description: "Disconnect from the remote host and clear the declared environment"},
 	}
 	_, err = bot.Request(api.NewSetMyCommands(commands...))
 	if err != nil {
@@ -264,24 +269,22 @@ func main() {
 
 		log.Printf("[INFO] Request from %s %s (%s - %d): %s", firstName, lastName, userName, chatID, messageText)
 
-		// Switch to localhost
-		if messageText == "/localhost" {
-			ssh.SSH_MODE = false
-			messageOutput := api.NewMessage(chatID, "Connection to `localhost`")
-			messageOutput.ParseMode = api.ModeMarkdown
-			bot.Send(messageOutput)
-			log.Println("[INFO] Connection to localhost")
-			continue
-		}
-
-		// Disconnect from ssh
-		if messageText == "exit" {
+		// Disconnect from ssh and clear declared environment (remove temp file)
+		if messageText == "/exit" || messageText == "exit" {
 			if ssh.SSH_MODE {
+				if env.SSH_SAVE_ENV {
+					env.SSH_SAVE_ENV = false
+					ssh.sshRunCommand("rm /tmp/ssh-bot.temp", env)
+					env.SSH_SAVE_ENV = true
+				}
 				ssh.SSH_MODE = false
 				messageOutput := api.NewMessage(chatID, "Disconnect from `"+ssh.SSH_HOST+"`")
 				messageOutput.ParseMode = api.ModeMarkdown
 				bot.Send(messageOutput)
 				log.Println("[INFO] Disconnect from" + ssh.SSH_HOST)
+			} else {
+				bot.Send(api.NewMessage(chatID, "Remote connection not established"))
+				log.Println("[INFO] Remote connection not established")
 			}
 			continue
 		}
@@ -315,7 +318,7 @@ func main() {
 			sendMessage, _ := bot.Send(api.NewMessage(chatID, "Connection to "+selectedHost))
 			lastMessageID := sendMessage.MessageID
 			log.Println("[INFO] Connection to " + selectedHost)
-			output, err := ssh.runCommand("uname -a", env)
+			output, err := ssh.sshRunCommand("uname -a", env)
 			if err != nil {
 				msg := "⚠ Connection error to " + selectedHost + "\n\n" + "```Error\n" + string(output) + "```"
 				editMessage := api.NewEditMessageText(chatID, lastMessageID, msg)
@@ -328,7 +331,7 @@ func main() {
 				editMessage.ParseMode = api.ModeMarkdown
 				bot.Send(editMessage)
 				log.Println("[INFO] Connection successful")
-				output, _ = ssh.runCommand("pwd", env)
+				output, _ = ssh.sshRunCommand("pwd", env)
 				ssh.PWD = strings.TrimSpace(string(output))
 			}
 			continue
@@ -339,7 +342,7 @@ func main() {
 			// Get path via ssh
 			if ssh.SSH_MODE {
 				command := "cd " + ssh.PWD + " && " + messageText + " && pwd"
-				output, err := ssh.runCommand(command, env)
+				output, err := ssh.sshRunCommand(command, env)
 				if err != nil {
 					msg := api.NewMessage(chatID, "⚠ Error changing directory:\n\n```ssh\n"+string(output)+"```")
 					msg.ParseMode = api.ModeMarkdown
@@ -361,9 +364,9 @@ func main() {
 
 		// Run command for execution
 		if env.PARALLEL_EXEC {
-			go ssh.runExec(env, bot, update, chatID, messageText)
+			go ssh.runCommand(env, bot, update, chatID, messageText)
 		} else {
-			ssh.runExec(env, bot, update, chatID, messageText)
+			ssh.runCommand(env, bot, update, chatID, messageText)
 		}
 	}
 }
