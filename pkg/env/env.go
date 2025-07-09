@@ -3,22 +3,26 @@ package env
 import (
 	"log"
 	"os"
+	"runtime"
 	"strconv"
 	"strings"
 )
 
 type Env struct {
-	TELEGRAM_BOT_TOKEN  string
-	TELEGRAM_USER_ID    int64
-	WIN_SHELL           string
-	LINUX_SHELL         string
-	PARALLEL_EXEC       bool
-	SSH_USER            string
-	SSH_PORT            string
-	SSH_HOSTS           string
-	SSH_CONNECT_TIMEOUT string
-	SSH_HOST_LIST       []string
-	LOG_MODE            string
+	TELEGRAM_BOT_TOKEN   string
+	TELEGRAM_USER_ID     int64
+	WIN_SHELL            string
+	LINUX_SHELL          string
+	PARALLEL_EXEC        bool
+	SSH_PORT             string
+	SSH_USER             string
+	SSH_PASSWORD         string
+	SSH_PRIVATE_KEY_PATH string
+	SSH_CONNECT_TIMEOUT  string
+	SSH_SAVE_ENV         bool
+	SSH_HOSTS            string
+	SSH_HOST_LIST        []string
+	LOG_MODE             string
 }
 
 func (env *Env) GetEnv() {
@@ -64,12 +68,23 @@ func (env *Env) GetEnv() {
 			} else {
 				env.PARALLEL_EXEC = false
 			}
-		case envKey == "SSH_USER":
-			env.SSH_USER = strings.TrimSpace(strings.Split(envValue, "#")[0])
 		case envKey == "SSH_PORT":
 			env.SSH_PORT = strings.TrimSpace(strings.Split(envValue, "#")[0])
+		case envKey == "SSH_USER":
+			env.SSH_USER = strings.TrimSpace(strings.Split(envValue, "#")[0])
+		case envKey == "SSH_PASSWORD":
+			env.SSH_PASSWORD = strings.TrimSpace(strings.Split(envValue, "#")[0])
+		case envKey == "SSH_PRIVATE_KEY_PATH":
+			env.SSH_PRIVATE_KEY_PATH = strings.TrimSpace(strings.Split(envValue, "#")[0])
 		case envKey == "SSH_CONNECT_TIMEOUT":
 			env.SSH_CONNECT_TIMEOUT = strings.TrimSpace(strings.Split(envValue, "#")[0])
+		case envKey == "SSH_SAVE_ENV":
+			checkType := strings.ToLower(strings.TrimSpace(strings.Split(envValue, "#")[0]))
+			if checkType == "true" {
+				env.SSH_SAVE_ENV = true
+			} else {
+				env.SSH_SAVE_ENV = false
+			}
 		case envKey == "SSH_HOST_LIST":
 			env.SSH_HOSTS = strings.TrimSpace(strings.Split(envValue, "#")[0])
 		case envKey == "LOG_MODE":
@@ -84,11 +99,20 @@ func (env *Env) GetEnv() {
 	if len(env.LINUX_SHELL) == 0 {
 		env.LINUX_SHELL = "sh"
 	}
+	if len(env.SSH_PORT) == 0 {
+		env.SSH_CONNECT_TIMEOUT = "22"
+	}
 	if len(env.SSH_USER) == 0 {
 		env.SSH_USER = "root"
 	}
-	if len(env.SSH_PORT) == 0 {
-		env.SSH_CONNECT_TIMEOUT = "22"
+	if len(env.SSH_PRIVATE_KEY_PATH) == 0 {
+		var envPath string
+		if runtime.GOOS == "windows" {
+			envPath = os.Getenv("HOMEDRIVE") + os.Getenv("HOMEPATH")
+		} else {
+			envPath = os.Getenv("HOME")
+		}
+		env.SSH_PRIVATE_KEY_PATH = envPath + "/.ssh/id_rsa"
 	}
 	if len(env.SSH_CONNECT_TIMEOUT) == 0 {
 		env.SSH_CONNECT_TIMEOUT = "2"
@@ -118,9 +142,12 @@ func (env *Env) PrintEnv() {
 	log.Println("[ENV] WIN_SHELL: " + env.WIN_SHELL)
 	log.Println("[ENV] LINUX_SHELL: " + env.LINUX_SHELL)
 	log.Printf("[ENV] PARALLEL_EXEC: %t\n", env.PARALLEL_EXEC)
-	log.Println("[ENV] SSH_USER: " + env.SSH_USER)
 	log.Println("[ENV] SSH_PORT: " + env.SSH_PORT)
+	log.Println("[ENV] SSH_USER: " + env.SSH_USER)
+	log.Println("[ENV] SSH_PASSWORD: " + env.SSH_PASSWORD)
+	log.Println("[ENV] SSH_PRIVATE_KEY_PATH: " + env.SSH_PRIVATE_KEY_PATH)
 	log.Println("[ENV] SSH_CONNECT_TIMEOUT: " + env.SSH_CONNECT_TIMEOUT)
+	log.Printf("[ENV] SSH_SAVE_ENV: %t\n", env.SSH_SAVE_ENV)
 	log.Println("[ENV] SSH_HOST_LIST:")
 	for _, host := range env.SSH_HOST_LIST {
 		log.Println("[ENV] - " + host)
