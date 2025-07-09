@@ -6,7 +6,6 @@ import (
 	"log"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -20,11 +19,12 @@ import (
 )
 
 type SSH struct {
-	PWD      string
-	SSH_MODE bool
-	SSH_HOST string
-	SSH_USER string
-	SSH_PORT string
+	PWD             string
+	SSH_MODE        bool
+	SSH_HOST        string
+	SSH_USER        string
+	SSH_PORT        string
+	SSH_PRIVATE_KEY []byte
 }
 
 // Get parameters for ssh connection from env
@@ -79,30 +79,16 @@ func (ssh *SSH) localChangeDir(bot *api.BotAPI, chatID int64, message string) {
 // 	return output, err
 // }
 
+// Run command via SSH
 func (ssh *SSH) runCommand(command string, env *env.Env) ([]byte, error) {
-	// Get Private Key
-	var envPath string
-	if runtime.GOOS == "windows" {
-		envPath = os.Getenv("HOMEDRIVE") + os.Getenv("HOMEPATH")
-	} else {
-		envPath = os.Getenv("HOME")
-	}
-	keyFiles, _ := filepath.Glob(envPath + "/.ssh/id_*")
-	var signer sshClient.Signer = nil
-	for _, keyFile := range keyFiles {
-		if strings.HasSuffix(keyFile, ".pub") {
-			continue
-		}
-		data, _ := os.ReadFile(keyFile)
-		signer, _ = sshClient.ParsePrivateKey(data)
-		break
-	}
+	// Get signer from private key
+	signer, _ := sshClient.ParsePrivateKey(ssh.SSH_PRIVATE_KEY)
 
 	// Convert timeout param
 	timeoutSeconds, _ := strconv.Atoi(env.SSH_CONNECT_TIMEOUT)
 	timeoutDuration := time.Duration(timeoutSeconds) * time.Second
 
-	// SSH main params
+	// SSH client config
 	config := &sshClient.ClientConfig{
 		User:            ssh.SSH_USER,
 		HostKeyCallback: sshClient.InsecureIgnoreHostKey(), // StrictHostKeyChecking=no
@@ -112,8 +98,8 @@ func (ssh *SSH) runCommand(command string, env *env.Env) ([]byte, error) {
 		},
 	}
 
-	// SSH auth params
-	if keyFiles != nil {
+	// SSH auth config
+	if signer != nil {
 		config.Auth = []sshClient.AuthMethod{
 			sshClient.PublicKeys(signer),
 			sshClient.Password(env.SSH_PASSWORD),
@@ -128,6 +114,7 @@ func (ssh *SSH) runCommand(command string, env *env.Env) ([]byte, error) {
 	// Establishing TCP connection
 	client, err := sshClient.Dial("tcp", fmt.Sprintf("%s:%s", ssh.SSH_HOST, ssh.SSH_PORT), config)
 	if err != nil {
+		log.Println("[WARN] Failed establishing tcp connection")
 		return nil, fmt.Errorf("Failed establishing tcp connection: %w", err)
 	}
 	defer client.Close()
@@ -135,6 +122,7 @@ func (ssh *SSH) runCommand(command string, env *env.Env) ([]byte, error) {
 	// Creating SSH session
 	session, err := client.NewSession()
 	if err != nil {
+		log.Println("[WARN] Failed creating ssh session")
 		return nil, fmt.Errorf("Failed creating ssh session: %w", err)
 	}
 	defer session.Close()
@@ -152,6 +140,7 @@ func (ssh *SSH) runCommand(command string, env *env.Env) ([]byte, error) {
 	return stdoutBuf.Bytes(), nil
 }
 
+// Run command on local or remote host
 func (ssh *SSH) runExec(env *env.Env, bot *api.BotAPI, update api.Update, chatID int64, messageText string) {
 	var output []byte
 	var err error
@@ -214,6 +203,9 @@ func main() {
 	env.GetEnv()
 
 	ssh := &SSH{}
+
+	// Read private key
+	ssh.SSH_PRIVATE_KEY, _ = os.ReadFile(env.SSH_PRIVATE_KEY_PATH)
 
 	bot, err := api.NewBotAPI(env.TELEGRAM_BOT_TOKEN)
 	if err != nil {
