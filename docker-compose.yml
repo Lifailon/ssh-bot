@@ -4,7 +4,7 @@ services:
     image: lifailon/ssh-bot:latest
     build:
       context: .
-      dockerfile: dockerfile
+      dockerfile: Dockerfile
     volumes:
       - .env:/ssh-bot/.env
       - $HOME/.ssh/id_rsa:/root/.ssh/id_rsa
